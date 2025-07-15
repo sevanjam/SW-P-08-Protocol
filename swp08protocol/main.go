@@ -8,5 +8,6 @@ import (
 func main() {
 	// Replace with any IP and port you want
 	swp08.RegisterMatrixQuery(swp08.NewMockMatrix(300, 300))
+	swp08.ACKWaitMode = swp08.NonBlocking // for testing
 	swp08.StartServer("0.0.0.0", 12345)
 }
