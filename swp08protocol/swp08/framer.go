@@ -1,79 +1,74 @@
 package swp08
 
-import (
-	"bytes"
+const (
+	DLE = 0x10
+	STX = 0x02
+	ETX = 0x03
 )
 
 type Framer struct {
 	buffer []byte
 }
 
-// Add incoming data to buffer and extract complete messages
 func (f *Framer) Feed(data []byte) [][]byte {
 	f.buffer = append(f.buffer, data...)
-
 	var messages [][]byte
 
 	for {
-		start := bytes.Index(f.buffer, []byte{0x10, 0x02}) // DLE STX
-		if start == -1 {
-			// No start marker, discard garbage
-			f.buffer = nil
+		msg, remaining := extractNextMessage(f.buffer)
+		if msg == nil {
 			break
 		}
-
-		// Remove data before start
-		if start > 0 {
-			f.buffer = f.buffer[start:]
-		}
-
-		end := findFrameEnd(f.buffer)
-		if end == -1 {
-			// Incomplete message, wait for more
-			break
-		}
-
-		// Extract raw message content (including DLE STX/ETX)
-		frame := f.buffer[:end+2]
-		f.buffer = f.buffer[end+2:]
-
-		// Strip frame markers, unescape DLE DLE
-		decoded := decodeMessage(frame[2 : len(frame)-2])
-		messages = append(messages, decoded)
+		messages = append(messages, msg)
+		f.buffer = remaining
 	}
 
 	return messages
 }
 
-// Look for DLE ETX that is not part of DLE DLE
-func findFrameEnd(data []byte) int {
-	for i := 0; i < len(data)-1; i++ {
-		if data[i] == 0x10 && data[i+1] == 0x03 {
-			return i
-		}
-	}
-	return -1
+func (f *Framer) Reset() {
+	f.buffer = nil
 }
 
-// Replace DLE DLE with single DLE
-func decodeMessage(data []byte) []byte {
-	var result []byte
-	skip := false
-	for i := 0; i < len(data); i++ {
-		if skip {
-			skip = false
-			continue
-		}
-		if data[i] == 0x10 {
-			if i+1 < len(data) && data[i+1] == 0x10 {
-				result = append(result, 0x10)
-				skip = true
-			} else {
-				result = append(result, data[i])
-			}
-		} else {
-			result = append(result, data[i])
+func extractNextMessage(buffer []byte) ([]byte, []byte) {
+	start := -1
+	end := -1
+
+	// Find start: DLE STX
+	for i := 0; i < len(buffer)-1; i++ {
+		if buffer[i] == DLE && buffer[i+1] == STX {
+			start = i + 2
+			break
 		}
 	}
-	return result
+	if start == -1 {
+		return nil, buffer
+	}
+
+	// Find end: DLE ETX
+	for i := start; i < len(buffer)-1; i++ {
+		if buffer[i] == DLE && buffer[i+1] == ETX {
+			end = i
+			break
+		}
+	}
+	if end == -1 {
+		return nil, buffer
+	}
+
+	payload := buffer[start:end]
+	remaining := buffer[end+2:]
+
+	// Unescape DLE DLE → DLE
+	var unescaped []byte
+	for i := 0; i < len(payload); i++ {
+		if payload[i] == DLE && i+1 < len(payload) && payload[i+1] == DLE {
+			unescaped = append(unescaped, DLE)
+			i++
+		} else {
+			unescaped = append(unescaped, payload[i])
+		}
+	}
+
+	return unescaped, remaining
 }

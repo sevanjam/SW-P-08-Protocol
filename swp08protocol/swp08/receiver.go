@@ -2,48 +2,49 @@ package swp08
 
 import (
 	"fmt"
-	"io"
 	"net"
 )
 
 func handleConnection(conn net.Conn) {
 	defer conn.Close()
 
+	state := &ConnectionState{
+		conn:       conn,
+		framer:     Framer{},
+		ackChannel: make(chan bool, 1), // buffered channel to avoid blocking
+	}
+
 	buffer := make([]byte, 1024)
-	framer := Framer{}
 
 	for {
 		n, err := conn.Read(buffer)
 		if err != nil {
-			if err == io.EOF {
-				fmt.Println("[SWP-08] Connection closed by", conn.RemoteAddr())
-			} else {
-				fmt.Println("[SWP-08] Read error:", err)
-			}
+			// handle error or connection close here
 			break
 		}
 
 		data := buffer[:n]
 
-		fmt.Printf("[SWP-08] Received %d bytes:\n", n)
+		fmt.Printf("[SWP-08] 📥 Received %d bytes:\n", n)
 		printHex(data)
 
-		messages := framer.Feed(data)
-
-		for _, msg := range messages {
-			fmt.Printf("[SWP-08] Extracted %d-byte message:\n", len(msg))
-			printHex(msg)
-
-			valid, reason := validateMessage(msg)
-			if valid {
-				fmt.Println("[SWP-08] ✅ Message is valid")
-				sendAcknowledge(conn)
-				handleMessage(conn, msg)
-				// We’ll add handleMessage(msg) here next
-			} else {
-				fmt.Println("[SWP-08] ❌ Invalid message:", reason)
-				sendNegativeAcknowledge(conn)
+		// Check for ACK/NAK first
+		if len(data) == 2 && data[0] == 0x10 {
+			switch data[1] {
+			case 0x06:
+				fmt.Println("[SWP-08] ✅ Received ACK")
+				state.ackChannel <- true
+				continue
+			case 0x15:
+				fmt.Println("[SWP-08] ❌ Received NAK")
+				state.ackChannel <- false
+				continue
 			}
+		}
+
+		messages := state.framer.Feed(data)
+		for _, msg := range messages {
+			handleMessage(state, msg) // pass *ConnectionState, not net.Conn
 		}
 	}
 }

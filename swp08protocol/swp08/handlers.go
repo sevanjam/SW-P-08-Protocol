@@ -2,11 +2,11 @@ package swp08
 
 import (
 	"fmt"
-	"net"
 )
 
 // Dual Controller Status Responce (command 0x09)
-func handleDualControllerStatus(conn net.Conn) {
+func handleDualControllerStatus(state *ConnectionState) {
+	conn := state.conn
 	fmt.Println("[SWP-08] 📡 Dual Controller Status Request (command 0x08)")
 
 	responseMessage := []byte{0x00, 0x00} // Master active, idle OK
@@ -21,7 +21,7 @@ func handleDualControllerStatus(conn net.Conn) {
 	fmt.Println("[SWP-08] ✅ Sent Dual Controller Status Response (command 0x09)")
 	printHex(response)
 
-	ack, err := waitForAck(conn)
+	ack, err := waitForAck(state)
 	if err != nil {
 		fmt.Println("[SWP-08] ❌ Error waiting for ACK/NAK:", err)
 		return
@@ -32,7 +32,8 @@ func handleDualControllerStatus(conn net.Conn) {
 }
 
 // handleTallyDumpRequest handles command 0x15 — Crosspoint Tally Dump Request
-func handleTallyDumpRequest(conn net.Conn, matrixByte byte) {
+func handleTallyDumpRequest(state *ConnectionState, matrixByte byte) {
+	conn := state.conn
 	fmt.Println("[SWP-08] 📥 Crosspoint Tally Dump Request (command 0x15)")
 
 	if matrix == nil {
@@ -80,7 +81,7 @@ func handleTallyDumpRequest(conn net.Conn, matrixByte byte) {
 		fmt.Printf("[SWP-08] ✅ Sent Crosspoint Tally Dump chunk %d (command 0x%02X)\n", i, cmd)
 		printHex(response)
 
-		ack, err := waitForAck(conn)
+		ack, err := waitForAck(state)
 		if err != nil {
 			fmt.Println("[SWP-08] ❌ Error waiting for ACK/NAK:", err)
 			return
@@ -132,7 +133,8 @@ func buildTallyDumpWordMessages(matrixByte byte, matrixID, level, numDest int) [
 }
 
 // Set Crosspoint request
-func handleSetCrosspoint(conn net.Conn, message []byte) {
+func handleSetCrosspoint(state *ConnectionState, message []byte) {
+	conn := state.conn
 	if len(message) < 4 {
 		fmt.Println("[SWP-08] ❌ Invalid Crosspoint Connect message length")
 		sendNegativeAcknowledge(conn)
@@ -171,12 +173,13 @@ func handleSetCrosspoint(conn net.Conn, message []byte) {
 
 	if ok {
 		// sendAcknowledge(conn)
-		sendCrosspointConnected(conn, matrixByte, multiplierByte, message[2], message[3])
+		sendCrosspointConnected(state, matrixByte, multiplierByte, message[2], message[3])
 	} else {
 		sendNegativeAcknowledge(conn)
 	}
 }
-func sendCrosspointConnected(conn net.Conn, matrixByte, multiplierByte, destByte, sourceByte byte) {
+func sendCrosspointConnected(state *ConnectionState, matrixByte, multiplierByte, destByte, sourceByte byte) {
+	conn := state.conn
 	response := []byte{matrixByte, multiplierByte, destByte, sourceByte}
 	full := constructResponse(0x04, response)
 
@@ -189,7 +192,7 @@ func sendCrosspointConnected(conn net.Conn, matrixByte, multiplierByte, destByte
 	fmt.Println("[SWP-08] ✅ Sent Crosspoint Connected response (command 0x04)")
 	printHex(full)
 
-	ack, err := waitForAck(conn)
+	ack, err := waitForAck(state)
 	if err != nil {
 		fmt.Println("[SWP-08] ❌ Error waiting for ACK/NAK after 0x04:", err)
 		return
